@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>intersect test</title>
+        <style>
+            
+            body {
+                font-family: 'Hind Siliguri', sans-serif !important;
+            }
+            canvas {
+                border: 1px solid #d0d0d0;
+                background-color: #fff;
+                display: inline-block;
+            }
+            #output {
+                display: inline-block;
+                vertical-align: top;
+            }
+            .clickable {
+                cursor: pointer;
+                text-decoration: underline;
+                -webkit-touch-callout: none;
+                -webkit-user-select: none;
+                -khtml-user-select: none;
+                -moz-user-select: none;
+                -ms-user-select: none;
+                user-select: none;
+            }
+            #drawing-container{
+                position: relative;
+            }
+            #intersection-status {
+                position: absolute;
+                top: 10px;
+                left: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div>
+            <span class="draw-circle clickable">draw circle</span> (<span class="radius-smaller clickable">r smaller</span> <span class="radius-bigger clickable">r bigger</span>)
+        </div>
+        <div class="draw-line clickable">draw line</div>
+        
+        <div id="drawing-container">
+            <div id="intersection-status"></div>
+            <canvas id="canvas" width="600" height="600">
+                
+            </canvas>
+        </div>
+        
+        <div id="output"></div>
+        <script src="jquery-3.3.1.min.js"></script>
+        <script>
+
+            function getAngle(targetA, sourceA) {
+                var a = targetA - sourceA;
+                a += (a > 180) ? -360 : (a < -180) ? 360 : 0;
+                return a;
+            }
+            function angle(cx, cy, ex, ey) {
+                var dy = ey - cy;
+                var dx = ex - cx;
+                var theta = Math.atan2(dy, dx); // range (-PI, PI]
+                theta *= 180 / Math.PI; // rads to degs, range (-180, 180]
+                //if (theta < 0) theta = 360 + theta; // range [0, 360)
+                return theta;
+            }
+
+
+
+            var PageModel = function() {
+                var self = this;
+
+                self.canvas = document.getElementById('canvas');
+                self.ctx = self.canvas.getContext('2d');
+
+                self.circle = {
+                    center : {},
+                    radius : 50
+                };
+                self.line = {
+                    start : {},
+                    end : {}
+                };
+                self.closestPointOnLine = {};
+                self.intersection = false;
+
+                self.Initialize = function() {
+
+                }
+                self.Initialize();
+
+                self.Draw = function() {
+                    self.ctx.clearRect(0, 0, self.canvas.width, self.canvas.height);
+
+                    // draw the circle
+                    if(self.circle.center.x && self.circle.center.y) {
+                        self.ctx.save();
+                        self.ctx.beginPath();
+                        self.ctx.strokeStyle = "#FF0000";
+                        self.ctx.arc(self.circle.center.x, self.circle.center.y, self.circle.radius, 0, 2 * Math.PI);
+                        self.ctx.stroke();
+                        self.ctx.restore();
+                    }
+
+                    // draw the line
+                    if(self.line.start.x && self.line.end.x) {
+                        self.ctx.save();
+                        self.ctx.beginPath();
+                        self.ctx.strokeStyle = "#00FF00";
+                        self.ctx.moveTo(self.line.start.x,self.line.start.y)
+                        self.ctx.lineTo(self.line.end.x, self.line.end.y);
+                        self.ctx.stroke();
+                        self.ctx.restore();
+                    }
+
+                    // draw the closest point on the line to the circle
+                    if(self.closestPointOnLine.x) {
+                        self.ctx.save();
+                        self.ctx.beginPath();
+                        self.ctx.strokeStyle = "#0000FF";
+                        self.ctx.arc(self.closestPointOnLine.x-1, self.closestPointOnLine.y-1, 2, 0, 2 * Math.PI);
+                        self.ctx.stroke();
+                        self.ctx.restore();
+                    }
+                }
+
+                self.HandleClick = function(x, y) {
+                    console.log("in handle click");
+                    if(self.WhatToDoOnClick) {
+                        console.log("doing something");
+                        self.WhatToDoOnClick(x, y);
+                    }
+                };
+
+                self.WhatToDoOnClick = null;
+
+                self.StartDrawingCircle = function() {
+                    self.WhatToDoOnClick = self.SetCircle;
+                };
+                self.StartDrawingLine = function() {
+                    self.WhatToDoOnClick = self.SetLineStart;
+                };
+                self.FinishDrawingLine = function() {
+                    self.WhatToDoOnClick = self.SetLineEnd;
+                };
+                self.ChangeCircleRadius = function(amountOfChange) {
+                    self.circle.radius += amountOfChange;
+                    self.HandleShapeChange();
+                };
+
+                self.SetCircle = function(x, y) {
+                    self.circle.center.x = x;
+                    self.circle.center.y = y;
+                    self.HandleShapeChange();
+                    self.WhatToDoOnClick = null;
+                };
+                self.SetLineStart = function(x,y) {
+                    self.line.start.x = x;
+                    self.line.start.y = y;
+                    self.FinishDrawingLine();
+                };
+                self.SetLineEnd = function(x,y) {
+                    self.line.end.x = x;
+                    self.line.end.y = y;
+                    self.HandleShapeChange();
+                    self.WhatToDoOnClick = null;
+                };
+
+                self.HandleShapeChange = function() {
+                    self.CheckForIntersect();
+                    self.Draw();
+                };
+
+                self.CheckForIntersect = function() {
+                    // https://math.stackexchange.com/questions/408002/newbie-determine-if-line-segment-intersects-circle
+
+                    // don't do if we haven't drawn all shapes
+                    if(!self.line.end.x || !self.circle.center.x) {
+                        return;
+                    }
+                    self.intersection = false;
+                    var output = [];
+
+                    var deltaX = self.line.end.x - self.line.start.x;
+                    var deltaY = self.line.end.y - self.line.start.y;
+                    output.push("deltaX: " + deltaX);
+                    output.push("deltaY: " + deltaY);
+
+                    var distanceBetweenPoints = Math.sqrt( deltaX * deltaX + deltaY * deltaY );
+                    output.push("distanceBetweenPoints: " + distanceBetweenPoints);
+
+                    var alpha = ( 1/(distanceBetweenPoints*distanceBetweenPoints) ) * (( deltaX * ( self.circle.center.x - self.line.start.x ) ) + (deltaY * ( self.circle.center.y - self.line.start.y ) ));
+                    output.push("alpha: " + alpha);
+
+                    var closestPointOnLine = {
+                        x : self.line.start.x + deltaX * alpha,
+                        y : self.line.start.y + deltaY * alpha
+                    };
+                    self.closestPointOnLine = closestPointOnLine;
+                    output.push("closestPointOnLine.x: " + closestPointOnLine.x + "; closestPointOnLine.y: " + closestPointOnLine.y);
+
+                    var deltaXDis = self.circle.center.x - closestPointOnLine.x;
+                    var deltaYDis = self.circle.center.y - closestPointOnLine.y;
+                    var distanceFromClosestPointToCircleCenter = Math.sqrt( deltaXDis * deltaXDis + deltaYDis * deltaYDis );
+                    output.push("distanceFromClosestPointToCircleCenter: " + distanceFromClosestPointToCircleCenter);
+
+                    if(distanceFromClosestPointToCircleCenter <= self.circle.radius) {
+                        output.push("distance from closest point on line to center of circle is less than radius! :)")
+                        deltaX = self.line.start.x - closestPointOnLine.x;
+                        deltaY = self.line.start.y - closestPointOnLine.y;
+                        var distanceBetweenLineStartAndClosestPointToCircle = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                        deltaX = self.line.end.x - closestPointOnLine.x;
+                        deltaY = self.line.end.y - closestPointOnLine.y;
+                        var distanceBetweenLineEndAndClosestPointToCircle = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                        
+                        output.push("distanceBetweenLineStartAndClosestPointToCircle: " + distanceBetweenLineStartAndClosestPointToCircle);
+                        output.push("distanceBetweenLineEndAndClosestPointToCircle: " + distanceBetweenLineEndAndClosestPointToCircle);
+
+                        if(distanceBetweenLineStartAndClosestPointToCircle <= distanceBetweenPoints && distanceBetweenLineEndAndClosestPointToCircle <= distanceBetweenPoints) {
+
+                            output.push("the closest point is on our line segment, this is an intersection!!!!!!!!!");
+                            self.intersection = true;
+
+                        } else {
+
+                            output.push("the closest point is NOT on our line segment");
+                            deltaX = self.line.start.x - self.circle.center.x;
+                            deltaY = self.line.start.y - self.circle.center.y;
+                            var distanceBetweenLineStartAndCircleCenter = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+                            deltaX = self.line.end.x - self.circle.center.x;
+                            deltaY = self.line.end.y - self.circle.center.y;
+                            var distanceBetweenLineEndAndCircleCenter = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+                            if(distanceBetweenLineStartAndCircleCenter <= self.circle.radius || distanceBetweenLineEndAndCircleCenter <= self.circle.radius) {
+                                
+                                output.push("the start or end of the line segment are close to the circle center, this is an intersection!!!!!!!!!");
+                                self.intersection = true;
+
+                            } else {
+
+                                output.push("the start or end of the line segment are not close to the circle center");
+
+                            }
+                        }
+                    } else {
+                        output.push("distance from closest point on line to center of circle is greater than radius; there can be no intersect")
+                    }
+
+                    self.ShowCalculationOutput(output);
+                };
+
+                self.ShowCalculationOutput = function(output) {
+                    $("#output").html("");
+                    for(var i = 0; i < output.length; i++) {
+                        $("#output").append("<div class='output-line'>"+output[i]+"</div>")
+                    }
+                    var status = self.intersection ? "Yep, that's an intersection" : "Nope, no intersect happening";
+                    $("#intersection-status").html(status)
+                }
+            }
+            var pageModel = new PageModel();
+
+
+
+            $(".draw-line").on("click", function() {
+                pageModel.StartDrawingLine();
+            });
+            $(".draw-circle").on("click", function() {
+                pageModel.StartDrawingCircle();
+            });
+            $("#canvas").on("click", function(event) {
+                var posX = $(this).offset().left,
+                    posY = $(this).offset().top;
+                pageModel.HandleClick(event.pageX - posX, event.pageY - posY);
+            });
+            $(".radius-smaller").on("click", function() {
+                pageModel.ChangeCircleRadius(-5);
+            });
+            $(".radius-bigger").on("click", function() {
+                pageModel.ChangeCircleRadius(5);
+            });
+
+        </script>
+    </body>
+</html>
